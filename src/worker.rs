@@ -1,7 +1,5 @@
 use crate::{
-    phantom::{
-        PhantomBool, PhantomBsKey, PhantomEvaluator, PhantomOps, PhantomParam, PhantomRpKey,
-    },
+    phantom::{PhantomBool, PhantomBsKey, PhantomEvaluator, PhantomOps, PhantomParam},
     server::{
         app::BS_KEY_SIZE,
         scheduler::{TaskRequest, TaskResponse},
@@ -38,7 +36,7 @@ pub enum WorkerMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WorkerKey {
     pub param: PhantomParam,
-    pub rp_key: PhantomRpKey,
+    // pub rp_key: PhantomRpKey,
     pub bs_key: PhantomBsKey,
 }
 

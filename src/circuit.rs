@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum CircuitId {
-    // Demo circuit that computes `inputs[..inputs.len() / 2] ^ inputs[inputs.len() / 2..]`.
+    /// Demo circuit that computes `inputs[..inputs.len() / 2] ^ inputs[inputs.len() / 2..]`.
     Demo,
 }
 

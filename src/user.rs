@@ -1,5 +1,5 @@
 use crate::{
-    client::{Client, HttpClient},
+    client::Client,
     phantom::{
         HierarchicalSeedableRng, PhantomBsKeyShare, PhantomCrs, PhantomOps, PhantomPk,
         PhantomPkShare, PhantomRpKeyShare, PhantomSk, PhantomSkKs,
@@ -8,16 +8,14 @@ use crate::{
     Result,
 };
 use anyhow::bail;
-use axum::body::Body;
 use core::time::Duration;
-use hyper_util::client::legacy::{connect::HttpConnector, Client as HyperUtilClient};
 use itertools::{chain, Itertools};
 use rand::{rngs::StdRng, SeedableRng};
 use std::sync::OnceLock;
 use tokio::time::sleep;
 
-pub struct User<H: HttpClient = HyperUtilClient<HttpConnector, Body>> {
-    client: Client<H>,
+pub struct User {
+    client: Client,
     user_id: usize,
     seed: <StdRng as SeedableRng>::Seed,
     crs: PhantomCrs,
@@ -35,9 +33,9 @@ impl User {
     }
 }
 
-impl<H: HttpClient> User<H> {
+impl User {
     pub async fn new(
-        client: Client<H>,
+        client: Client,
         user_id: usize,
         seed: <StdRng as SeedableRng>::Seed,
     ) -> Result<Self> {
@@ -213,22 +211,17 @@ impl<H: HttpClient> User<H> {
 mod test {
     use crate::{
         client::Client,
-        server::{
-            test::{TEST_CRS, TEST_PARAM},
-            ServerState,
-        },
+        server::test::{test_server, TEST_PARAM},
         test::ItertoolsExt,
         user::User,
     };
     use rand::{rngs::StdRng, Rng, SeedableRng};
-    use std::sync::Arc;
 
     #[tokio::test]
     async fn key_gen() {
-        let state = ServerState::new(TEST_PARAM, TEST_CRS);
-        assert!(state.lock().unwrap().app.worker_key().is_none());
+        let (server_handle, server_addr) = test_server().await;
 
-        let client = Client::mock(Arc::clone(&state));
+        let client = &Client::new(format!("http://{server_addr}"));
         let users = (0..TEST_PARAM.total_shares)
             .map(|user_id| User::new(client.clone(), user_id, StdRng::from_entropy().gen()))
             .try_join_vec()
@@ -244,5 +237,8 @@ mod test {
             .try_join_for_each(|user| user.wait_until_game_ready())
             .await
             .unwrap();
+
+        server_handle.abort();
+        assert!(server_handle.await.unwrap_err().is_cancelled());
     }
 }

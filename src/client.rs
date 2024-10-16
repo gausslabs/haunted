@@ -11,35 +11,18 @@ use crate::{
 };
 use anyhow::{anyhow, bail};
 use axum::body::Body;
-use core::future::Future;
-use futures_util::TryFutureExt;
 use http_body_util::BodyExt;
-use hyper::{Request, Response, StatusCode};
+use hyper::{Request, StatusCode};
 use hyper_util::{
     client::legacy::{connect::HttpConnector, Client as HyperUtilClient},
     rt::TokioExecutor,
 };
 use serde::{de::DeserializeOwned, Serialize};
 
-pub trait HttpClient {
-    type Body: BodyExt<Error: std::error::Error>;
-
-    fn request(&self, req: Request<Body>) -> impl Future<Output = Result<Response<Self::Body>>>;
-}
-
-impl HttpClient for HyperUtilClient<HttpConnector, Body> {
-    type Body = hyper::body::Incoming;
-
-    fn request(&self, req: Request<Body>) -> impl Future<Output = Result<Response<Self::Body>>> {
-        self.request(req)
-            .map_err(|err| anyhow!("failed to send request, {err}"))
-    }
-}
-
 #[derive(Clone)]
-pub struct Client<T = HyperUtilClient<HttpConnector, Body>> {
+pub struct Client {
     uri: String,
-    inner: T,
+    inner: HyperUtilClient<HttpConnector, Body>,
 }
 
 impl Client {
@@ -50,7 +33,7 @@ impl Client {
     }
 }
 
-impl<H: HttpClient> Client<H> {
+impl Client {
     async fn call<T: DeserializeOwned>(&self, request: Request<Body>) -> Result<T> {
         let (method, uri) = (request.method().clone(), request.uri().clone());
         tracing::debug!("send {method} {uri}");
@@ -187,59 +170,5 @@ impl<H: HttpClient> Client<H> {
             &CreateUserActionRequest { action },
         )
         .await
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod test {
-    use crate::{
-        client::{Client, HttpClient},
-        server::{app, ServerState},
-        Result,
-    };
-    use axum::{body::Body, routing::RouterIntoService, Router};
-    use core::{future::Future, ops::DerefMut};
-    use hyper::{Request, Response};
-    use std::sync::{Arc, Mutex};
-    use tower::Service;
-
-    #[derive(Clone)]
-    pub(crate) struct MockHttpClient {
-        router: Arc<Mutex<RouterIntoService<Body>>>,
-    }
-
-    impl MockHttpClient {
-        fn new(router: Router) -> Self {
-            MockHttpClient {
-                router: Arc::new(Mutex::new(router.into_service())),
-            }
-        }
-    }
-
-    impl HttpClient for MockHttpClient {
-        type Body = Body;
-
-        fn request(
-            &self,
-            req: Request<Body>,
-        ) -> impl Future<Output = Result<Response<Self::Body>>> {
-            return inner(self.router.lock().unwrap(), req);
-
-            async fn inner(
-                mut router: impl DerefMut<Target = RouterIntoService<Body>>,
-                req: Request<Body>,
-            ) -> Result<Response<Body>> {
-                Ok(router.call(req).await.unwrap())
-            }
-        }
-    }
-
-    impl Client<MockHttpClient> {
-        pub(crate) fn mock(state: Arc<Mutex<ServerState>>) -> Self {
-            Self {
-                uri: "http://mock".to_string(),
-                inner: MockHttpClient::new(app::router().with_state(state)),
-            }
-        }
     }
 }

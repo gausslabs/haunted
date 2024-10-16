@@ -93,8 +93,9 @@ impl SchedulerState {
 
         tracing::debug!("unregistered, current worker count: {}", self.workers.len());
 
+        // Reschedule if there are tasks unfinished
         worker.scheduled.into_values().for_each(|request| {
-            let _ = self.schedule_task_request(request);
+            let _ = self.schedule_task(request);
         })
     }
 
@@ -112,7 +113,7 @@ impl SchedulerState {
             .for_each(|worker| worker.set_key(key.clone()));
     }
 
-    pub fn schedule_task_request(&mut self, request: TaskRequest) -> Result<()> {
+    pub fn schedule_task(&mut self, request: TaskRequest) -> Result<()> {
         if self.workers.is_empty() {
             tracing::error!("failed to schedule task because no worker available");
             bail!("no worker available");

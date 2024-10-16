@@ -1,9 +1,9 @@
 use crate::{
     circuit::CircuitId,
     phantom::{
-        PhantomBatchedCt, PhantomBsKey, PhantomBsKeyShare, PhantomCrs, PhantomCt, PhantomOps,
-        PhantomPackedCt, PhantomPackedCtDecShare, PhantomParam, PhantomPk, PhantomPkShare,
-        PhantomRpKey, PhantomRpKeyPrep, PhantomRpKeyShare,
+        PhantomBatchedCt, PhantomBsKey, PhantomBsKeyShare, PhantomCrs, PhantomCt, PhantomEvaluator,
+        PhantomOps, PhantomPackedCt, PhantomPackedCtDecShare, PhantomParam, PhantomPk,
+        PhantomPkShare, PhantomRpKey, PhantomRpKeyPrep, PhantomRpKeyShare,
     },
     server::{
         scheduler::{TaskId, TaskRequest, TaskResponse},
@@ -158,6 +158,7 @@ impl GameState {
     }
 }
 
+/// App status.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum AppStatus {
     WaitingForPkShare(Vec<usize>),
@@ -177,8 +178,11 @@ pub struct AppState {
     rp_key: OnceCell<PhantomRpKey>,
     rp_key_prep: OnceCell<PhantomRpKeyPrep>,
     bs_key: OnceCell<PhantomBsKey>,
+    evaluator: OnceCell<PhantomEvaluator>,
     game: OnceCell<GameState>,
+    /// Decryptables waiting for decryption shares or ready for decryption.
     decryptable: Vec<DecryptableState>,
+    /// Scheduled task corresponding to their output ct ids.
     scheduled: HashMap<TaskId, Vec<CtId>>,
 }
 
@@ -192,6 +196,7 @@ impl AppState {
             rp_key: Default::default(),
             rp_key_prep: Default::default(),
             bs_key: Default::default(),
+            evaluator: Default::default(),
             game: Default::default(),
             decryptable: Default::default(),
             scheduled: Default::default(),
@@ -254,6 +259,7 @@ impl AppState {
                 .iter()
                 .map(|user| user.bs_key_share.get().unwrap()),
         );
+        self.evaluator.set(self.ops.evaluator(&bs_key)).unwrap();
         self.bs_key.set(bs_key).unwrap();
     }
 
@@ -261,7 +267,7 @@ impl AppState {
         Some(WorkerKey {
             param: *self.ops.param(),
             bs_key: self.bs_key.get().cloned()?,
-            rp_key: self.rp_key.get().cloned()?,
+            // rp_key: self.rp_key.get().cloned()?,
         })
     }
 
@@ -288,6 +294,8 @@ impl AppState {
     }
 
     fn make_decryptable(&mut self) {
+        // Make decryptable for demo, 10 public cts and 10 designated cts
+        // for each user.
         self.decryptable = chain![
             [self.pack((0..10).map(CtId::Demo), None)],
             (0..self.users.len()).map(|user_id| {
@@ -496,6 +504,7 @@ async fn create_user_bs_key_share(
     Ok(Bincode(CreateUserBsKeyShareResponse {}))
 }
 
+/// Decryptable ready for user to decrypt.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Decryptable {
     pub ct_ids: Vec<CtId>,
@@ -621,7 +630,7 @@ async fn update_user_tasks(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Action {
-    // Demo action to trigger Demo circuit with inputs.
+    /// Demo action to trigger Demo circuit with inputs.
     Demo(PhantomBatchedCt),
 }
 
@@ -658,7 +667,7 @@ async fn create_user_action(
             // Remember the output_ct_ids to update later.
             app.scheduled.insert(task_id, output_ct_ids);
             scheduler
-                .schedule_task_request(TaskRequest {
+                .schedule_task(TaskRequest {
                     task_id,
                     circuit_id: CircuitId::Demo,
                     inputs: chain![
